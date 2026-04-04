@@ -1,0 +1,136 @@
+"""OpenAI API agent backend — GPT-4o/o1/o3 + any OpenAI-compatible API."""
+
+from __future__ import annotations
+
+import json
+import os
+from typing import Any
+
+from .base import AgentBackend, AgentMessage, ToolCall
+
+
+class OpenAIAgent(AgentBackend):
+    """Drives the research loop via the OpenAI Chat Completions API.
+
+    Works with OpenAI, plus any OpenAI-compatible API (Ollama, vLLM, Together, etc.)
+    by setting base_url.
+
+    Requires: pip install openai
+    Set OPENAI_API_KEY or pass api_key.
+    """
+
+    def __init__(
+        self,
+        model: str = "gpt-4o",
+        api_key: str | None = None,
+        api_key_env: str = "OPENAI_API_KEY",
+        base_url: str | None = None,
+        max_tokens: int = 4096,
+    ):
+        try:
+            import openai
+        except ImportError:
+            raise ImportError(
+                "openai package required. Install with: pip install autolab[openai]"
+            )
+
+        key = api_key or os.environ.get(api_key_env, "")
+        if not key and not base_url:
+            raise ValueError(
+                f"No API key found. Set {api_key_env} or pass api_key."
+            )
+
+        kwargs: dict[str, Any] = {}
+        if key:
+            kwargs["api_key"] = key
+        if base_url:
+            kwargs["base_url"] = base_url
+
+        self._client = openai.OpenAI(**kwargs)
+        self._model = model
+        self._max_tokens = max_tokens
+
+    def model_name(self) -> str:
+        return self._model
+
+    def format_tools(self, tools: list[dict]) -> list[dict]:
+        """Convert generic tool schemas to OpenAI function-calling format."""
+        formatted = []
+        for t in tools:
+            formatted.append({
+                "type": "function",
+                "function": {
+                    "name": t["name"],
+                    "description": t.get("description", ""),
+                    "parameters": t.get("parameters", {"type": "object", "properties": {}}),
+                },
+            })
+        return formatted
+
+    def send(
+        self,
+        messages: list[AgentMessage],
+        tools: list[dict] | None = None,
+    ) -> AgentMessage:
+        """Send messages to the OpenAI API and return the response."""
+        api_messages = []
+
+        for msg in messages:
+            if msg.role == "tool" and msg.tool_result:
+                api_messages.append({
+                    "role": "tool",
+                    "tool_call_id": msg.tool_result.tool_call_id,
+                    "content": msg.tool_result.output,
+                })
+            elif msg.role == "assistant" and msg.tool_calls:
+                tc_list = []
+                for tc in msg.tool_calls:
+                    tc_list.append({
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {
+                            "name": tc.name,
+                            "arguments": json.dumps(tc.arguments),
+                        },
+                    })
+                api_messages.append({
+                    "role": "assistant",
+                    "content": msg.content or None,
+                    "tool_calls": tc_list,
+                })
+            else:
+                api_messages.append({
+                    "role": msg.role,
+                    "content": msg.content,
+                })
+
+        kwargs: dict[str, Any] = {
+            "model": self._model,
+            "messages": api_messages,
+            "max_tokens": self._max_tokens,
+        }
+        if tools:
+            kwargs["tools"] = self.format_tools(tools)
+
+        response = self._client.chat.completions.create(**kwargs)
+        choice = response.choices[0]
+        message = choice.message
+
+        tool_calls = []
+        if message.tool_calls:
+            for tc in message.tool_calls:
+                try:
+                    args = json.loads(tc.function.arguments)
+                except (json.JSONDecodeError, AttributeError):
+                    args = {}
+                tool_calls.append(ToolCall(
+                    id=tc.id,
+                    name=tc.function.name,
+                    arguments=args,
+                ))
+
+        return AgentMessage(
+            role="assistant",
+            content=message.content or "",
+            tool_calls=tool_calls,
+        )

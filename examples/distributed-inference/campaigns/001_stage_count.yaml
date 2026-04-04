@@ -1,0 +1,39 @@
+version: 1
+name: stage_count
+hypothesis: "2-stage pipeline produces higher tok/s than 3 or 4 stages due to less network overhead"
+question: q1
+moonshot: false
+
+runner:
+  backend: local
+  command: "python3 experiments/benchmark.py --stages {stages} --latency-ms 10 --compression none --tokens 20"
+  working_dir: .
+  timeout_seconds: 30
+
+grid:
+  stages: [2, 3, 4]
+
+metrics:
+  primary: tok_per_sec
+  direction: maximize
+  collect:
+    - name: tok_per_sec
+      pattern: "Tok/s: ([\\d.]+)"
+      type: float
+    - name: total_ms
+      pattern: "Total: ([\\d.]+)"
+      type: float
+    - name: ttft_ms
+      pattern: "TTFT: ([\\d.]+)"
+      type: float
+    - name: compute_ms
+      pattern: "Compute: ([\\d.]+)"
+      type: float
+    - name: network_ms
+      pattern: "Network: ([\\d.]+)"
+      type: float
+
+stopping:
+  window: 3
+  threshold: 0.05
+  max_failures: 3

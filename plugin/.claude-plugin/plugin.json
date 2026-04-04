@@ -1,0 +1,9 @@
+{
+  "name": "autolab",
+  "version": "0.1.0",
+  "description": "Autonomous research orchestration — campaign-driven experiment loops with discovery documentation",
+  "author": {
+    "name": "Tate Berenbaum",
+    "email": "tate@cascadia.cloud"
+  }
+}

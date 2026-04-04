@@ -1,0 +1,13 @@
+version: 1
+directive: "Find the fastest sorting strategy for each data distribution, considering algorithm choice, pivot strategy, and input characteristics"
+
+agent:
+  backend: claude-code
+
+strategy:
+  moonshot_ratio: 0.5
+  enforce: soft
+
+targets:
+  min_campaigns: 8
+  min_experiments: 60

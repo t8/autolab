@@ -1,0 +1,31 @@
+version: 1
+name: algorithm_comparison
+hypothesis: "Quicksort with median-of-three pivot is fastest on random data across all sizes"
+question: q1
+moonshot: false
+
+runner:
+  backend: local
+  command: "python3 experiments/sort_bench.py --algorithm {algorithm} --pivot median --size {size} --distribution random"
+  working_dir: .
+  timeout_seconds: 60
+
+grid:
+  algorithm: [quicksort, mergesort, heapsort]
+  size: [1000, 10000, 100000]
+
+metrics:
+  primary: ops_per_sec
+  direction: maximize
+  collect:
+    - name: time_ms
+      pattern: "Time: ([\\d.]+)"
+      type: float
+    - name: ops_per_sec
+      pattern: "Ops/sec: ([\\d.]+)"
+      type: float
+
+stopping:
+  window: 3
+  threshold: 0.05
+  max_failures: 3

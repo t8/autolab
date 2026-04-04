@@ -1,0 +1,35 @@
+version: 1
+name: moonshot_optimizer_combo
+hypothesis: "SGD with high learning rate and large batch size might outperform adam at the optimal config"
+question: q2
+moonshot: true
+
+runner:
+  backend: local
+  command: "python3 experiments/train.py --lr {lr} --batch-size {batch_size} --optimizer {optimizer} --seed 42"
+  working_dir: .
+  timeout_seconds: 30
+
+grid:
+  lr: [0.1, 0.05, 0.01]
+  batch_size: [128, 256]
+  optimizer: [sgd, rmsprop]
+
+metrics:
+  primary: loss
+  direction: minimize
+  collect:
+    - name: loss
+      pattern: "Loss: ([\\d.]+)"
+      type: float
+    - name: accuracy
+      pattern: "Accuracy: ([\\d.]+)"
+      type: float
+    - name: throughput
+      pattern: "Throughput: ([\\d.]+)"
+      type: float
+
+stopping:
+  window: 3
+  threshold: 0.05
+  max_failures: 3

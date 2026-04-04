@@ -1,0 +1,16 @@
+directive: "Find the optimal hyperparameter configuration that minimizes loss while maximizing throughput"
+status: active
+
+questions:
+  - id: q1
+    text: "What is the optimal learning rate and batch size for adam?"
+    status: active
+    priority: high
+    campaigns: [lr_sweep, batch_size_sweep]
+
+  - id: q2
+    text: "Can alternative optimizers (SGD, RMSProp) outperform adam?"
+    status: active
+    priority: medium
+    campaigns: [moonshot_optimizer_combo]
+    depends_on: [q1]

@@ -1,0 +1,35 @@
+version: 1
+name: pivot_x_distribution
+hypothesis: "Pivot strategy matters most on sorted/reversed data where first/last pivot causes worst-case O(n^2)"
+question: q2
+moonshot: false
+
+runner:
+  backend: local
+  command: "python3 experiments/sort_bench.py --algorithm quicksort --pivot {pivot} --size 10000 --distribution {distribution}"
+  working_dir: .
+  timeout_seconds: 60
+
+defaults:
+  algorithm: quicksort
+  size: 10000
+
+grid:
+  pivot: [first, last, median, random]
+  distribution: [random, sorted, reversed, nearly_sorted, duplicates]
+
+metrics:
+  primary: time_ms
+  direction: minimize
+  collect:
+    - name: time_ms
+      pattern: "Time: ([\\d.]+)"
+      type: float
+    - name: ops_per_sec
+      pattern: "Ops/sec: ([\\d.]+)"
+      type: float
+
+stopping:
+  window: 5
+  threshold: 0.03
+  max_failures: 3

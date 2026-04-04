@@ -1,0 +1,13 @@
+version: 1
+directive: "Find the optimal hyperparameter configuration (learning rate, batch size, optimizer) that minimizes training loss while maximizing throughput"
+
+agent:
+  backend: claude-code
+
+strategy:
+  moonshot_ratio: 0.5
+  enforce: soft
+
+targets:
+  min_campaigns: 10
+  min_experiments: 50

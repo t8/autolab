@@ -1,0 +1,37 @@
+# Example campaign — delete or modify this file
+version: 1
+name: example_sweep
+hypothesis: "This is an example campaign to demonstrate the format"
+question: q1
+moonshot: false
+
+runner:
+  backend: local
+  command: "echo 'Throughput: {throughput_val} samples/sec' && echo 'Loss: 0.{loss_val}'"
+  working_dir: .
+  timeout_seconds: 60
+
+defaults:
+  seed: 42
+
+grid:
+  throughput_val: [100, 200, 300]
+  loss_val: [5, 3, 1]
+
+metrics:
+  primary: throughput
+  direction: maximize
+  collect:
+    - name: throughput
+      source: stdout
+      pattern: "Throughput: ([\\d.]+)"
+      type: float
+    - name: loss
+      source: stdout
+      pattern: "Loss: ([\\d.]+)"
+      type: float
+
+stopping:
+  window: 3
+  threshold: 0.05
+  max_failures: 3

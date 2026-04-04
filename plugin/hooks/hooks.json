@@ -1,0 +1,8 @@
+{
+  "hooks": [
+    {
+      "event": "Stop",
+      "command": "${CLAUDE_PLUGIN_ROOT}/hooks/research-stop-hook.sh"
+    }
+  ]
+}

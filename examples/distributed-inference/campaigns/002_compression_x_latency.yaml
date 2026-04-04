@@ -1,0 +1,38 @@
+version: 1
+name: compression_x_latency
+hypothesis: "FP16 compression provides the best throughput under WAN latency (25-100ms) by reducing transfer size with minimal compute overhead"
+question: q2
+moonshot: false
+
+runner:
+  backend: local
+  command: "python3 experiments/benchmark.py --stages 2 --latency-ms {latency_ms} --compression {compression} --tokens 20"
+  working_dir: .
+  timeout_seconds: 30
+
+defaults:
+  stages: 2
+  tokens: 20
+
+grid:
+  latency_ms: [0, 10, 25, 50, 100]
+  compression: [none, fp16, int8, sparse]
+
+metrics:
+  primary: tok_per_sec
+  direction: maximize
+  collect:
+    - name: tok_per_sec
+      pattern: "Tok/s: ([\\d.]+)"
+      type: float
+    - name: total_ms
+      pattern: "Total: ([\\d.]+)"
+      type: float
+    - name: network_ms
+      pattern: "Network: ([\\d.]+)"
+      type: float
+
+stopping:
+  window: 5
+  threshold: 0.03
+  max_failures: 3

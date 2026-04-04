@@ -1,0 +1,81 @@
+# Autolab Research Project
+
+## Research Directive
+
+{{ goal }}
+
+## How This Project Works
+
+You are running an autonomous research loop using Autolab. Each iteration follows this cycle:
+
+1. **Orient** — Read JOURNAL.md, query results.db, check .autolab/state.json
+2. **Hypothesize** — Form a testable question, write it in the journal BEFORE acting
+3. **Design** — Create a campaign YAML in campaigns/ targeting the hypothesis
+4. **Execute** — Run: `autolab run campaigns/<name>.yaml`
+5. **Analyze** — Query results: `autolab results --metric <metric> --top 10`
+6. **Document** — Update JOURNAL.md with findings. If novel, add to DISCOVERIES.md
+7. **Commit** — `git add -A && git commit -m "research: <description>"`
+
+## Commands
+
+```bash
+autolab run campaigns/<name>.yaml    # Run a campaign
+autolab status                       # Check progress
+autolab results --metric <m> --top 5 # Query best results
+```
+
+## Files to Read Every Iteration
+
+1. `JOURNAL.md` — your running log, how you communicate with future iterations
+2. `DISCOVERIES.md` — verified novel findings
+3. `research_plan.yaml` — current question decomposition
+4. `.autolab/state.json` — machine-readable progress
+
+## Campaign Format
+
+```yaml
+version: 1
+name: my_campaign
+hypothesis: "What I expect to find"
+question: q1                          # Links to research_plan.yaml
+moonshot: false                       # true for high-risk/high-reward
+
+runner:
+  backend: local
+  command: "python experiment.py --param {param_name}"
+  working_dir: ./experiments
+  timeout_seconds: 3600
+
+defaults:
+  fixed_param: value
+
+grid:
+  param_name: [val1, val2, val3]
+
+metrics:
+  primary: metric_name
+  direction: maximize
+  collect:
+    - name: metric_name
+      pattern: "Metric: ([\\d.]+)"
+
+stopping:
+  window: 3
+  threshold: 0.05
+  max_failures: 3
+```
+
+## Discovery Template
+
+See DISCOVERIES.md for the entry template. Every discovery must include:
+- What was found (2-3 sentences)
+- Why it's non-obvious
+- Prior art search (cite what you found or didn't)
+- Quantitative results
+- Implications
+
+## Style
+
+- Conventional commits for git history
+- Keep campaign names descriptive: `NNN_hypothesis_name.yaml`
+- Write journal entries BEFORE running experiments (hypothesis-first)

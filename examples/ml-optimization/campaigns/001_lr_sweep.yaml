@@ -1,0 +1,37 @@
+version: 1
+name: lr_sweep
+hypothesis: "Learning rate 0.001 produces the lowest loss for adam optimizer"
+question: q1
+moonshot: false
+
+runner:
+  backend: local
+  command: "python3 experiments/train.py --lr {lr} --batch-size 32 --optimizer adam --seed 42"
+  working_dir: .
+  timeout_seconds: 30
+
+defaults:
+  batch_size: 32
+  optimizer: adam
+
+grid:
+  lr: [0.1, 0.01, 0.001, 0.0001, 0.00001]
+
+metrics:
+  primary: loss
+  direction: minimize
+  collect:
+    - name: loss
+      pattern: "Loss: ([\\d.]+)"
+      type: float
+    - name: accuracy
+      pattern: "Accuracy: ([\\d.]+)"
+      type: float
+    - name: throughput
+      pattern: "Throughput: ([\\d.]+)"
+      type: float
+
+stopping:
+  window: 3
+  threshold: 0.05
+  max_failures: 3
