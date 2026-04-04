@@ -1,5 +1,7 @@
 # Autolab
 
+![Research Tree Visualization](docs/tree-example.png)
+
 Autonomous research orchestration framework. Give it a research goal, and it designs experiment campaigns, runs them, analyzes results, and documents novel discoveries.
 
 Autolab is not autoresearch. Autoresearch optimizes a single metric in a tight loop. Autolab orchestrates **research programs** — multi-question investigations with campaign-based experiment design, literature-informed hypothesis generation, and rigorous discovery documentation.
