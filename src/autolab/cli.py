@@ -101,6 +101,46 @@ def results(db_path: str, campaign_name: str | None, metric_name: str | None, li
 
 @main.command()
 @click.option("--dir", "-d", "directory", default=".", help="Project directory")
+@click.option("--top", "-n", "top_n", default=5, help="Top experiments per campaign")
+@click.option("--metric", "-m", "metric_override", default=None, help="Override primary metric")
+@click.option("--no-color", is_flag=True, help="Disable ANSI colors")
+@click.option("--dot", "dot_output", default=None, help="Write Graphviz DOT to file")
+@click.option("--render", "render_path", default=None, help="Render to PNG/SVG (requires graphviz)")
+def tree(directory: str, top_n: int, metric_override: str | None, no_color: bool, dot_output: str | None, render_path: str | None):
+    """Visualize the research tree: directive -> questions -> campaigns -> experiments."""
+    from .viz.tree import build_tree, render_terminal, render_dot
+
+    project_dir = Path(directory).resolve()
+    root = build_tree(project_dir, top_n=top_n, metric_override=metric_override)
+
+    if dot_output or render_path:
+        dot_str = render_dot(root)
+        if dot_output:
+            Path(dot_output).write_text(dot_str)
+            click.echo(f"DOT written to {dot_output}")
+        if render_path:
+            dot_path = render_path + ".dot" if not dot_output else dot_output
+            Path(dot_path).write_text(dot_str)
+            fmt = "svg" if render_path.endswith(".svg") else "png"
+            import subprocess
+            try:
+                subprocess.run(
+                    ["dot", f"-T{fmt}", dot_path, "-o", render_path],
+                    check=True, capture_output=True,
+                )
+                click.echo(f"Rendered to {render_path}")
+            except FileNotFoundError:
+                click.echo("graphviz 'dot' not found. Install with: brew install graphviz", err=True)
+                sys.exit(1)
+            finally:
+                if not dot_output and Path(dot_path).exists():
+                    Path(dot_path).unlink()
+    else:
+        click.echo(render_terminal(root, color=not no_color, top_n=top_n))
+
+
+@main.command()
+@click.option("--dir", "-d", "directory", default=".", help="Project directory")
 @click.option("--backend", "-b", default=None, help="Agent backend: anthropic | openai | openai-compatible")
 @click.option("--model", "-m", default=None, help="Model ID override")
 @click.option("--max-iterations", "-n", default=10, help="Max research iterations")
