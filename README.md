@@ -4,7 +4,7 @@
 
 Autonomous research orchestration framework. Give it a research goal, and it designs experiment campaigns, runs them, analyzes results, and documents novel discoveries.
 
-Autolab is not autoresearch. Autoresearch optimizes a single metric in a tight loop. Autolab orchestrates **research programs** — multi-question investigations with campaign-based experiment design, literature-informed hypothesis generation, and rigorous discovery documentation.
+Autolab builds on the [autoresearch](https://github.com/karpathy/autoresearch) paradigm pioneered by Andrej Karpathy. Where autoresearch excels at optimizing a single metric in a tight loop, Autolab extends the idea to orchestrate **research programs** — multi-question investigations with campaign-based experiment design, literature-informed hypothesis generation, and rigorous discovery documentation.
 
 ## Quickstart
 
@@ -198,6 +198,13 @@ cd autolab
 pip install -e ".[dev]"
 pytest tests/ -v
 ```
+
+## Inspiration
+
+Autolab stands on the shoulders of:
+
+- **[Andrej Karpathy](https://github.com/karpathy/autoresearch)** — whose autoresearch concept proved that LLMs can autonomously run meaningful experiments. Autolab extends this from single-metric optimization to multi-hypothesis research programs.
+- **[Geoffrey Huntley](https://ghuntley.com/loop/)** — who created the Ralph Wiggum loop technique for keeping Claude Code running autonomously. Autolab's research marathon mode is built on this pattern.
 
 ## License
 
