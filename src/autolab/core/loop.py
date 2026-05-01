@@ -19,6 +19,12 @@ RUNNER_BACKENDS: dict[str, type] = {
     "ssh": SSHRunner,
 }
 
+try:
+    from cascadia_fleet.autolab import FleetRunner  # type: ignore
+    RUNNER_BACKENDS["fleet"] = FleetRunner
+except Exception:
+    pass
+
 
 def get_runner(campaign: Campaign) -> RunnerBase:
     """Create a runner from a campaign's runner config."""
