@@ -58,6 +58,18 @@ This creates 4 experiments. Params also exported as `AUTOLAB_PARAM_*` env vars.
 ### Agent tool loop
 The LLM agent gets 7 tools: `run_campaign`, `query_results`, `read_file`, `write_file`, `run_shell`, `get_status`, `complete_iteration`. The harness runs up to 50 tool rounds per iteration, breaking when the agent calls `complete_iteration`.
 
+`AgentHarness.run_iteration` accumulates messages and replays the **entire history** on every round. Any per-message field a provider requires on replay must therefore survive the round trip — see `AgentMessage.reasoning_content`.
+
+### Provider profiles (`agents/providers/`)
+The executing model is decoupled from the research architecture. A `ProviderProfile` declares api_mode (`chat_completions` | `messages` | `external`), env vars, base_url, default/fallback models, and request quirks; `registry.py` handles name/alias lookup and loads external profiles from `~/.autolab/providers/*.py` and `<project>/providers/*.py`. `cli._create_agent` resolves a profile and picks the backend class from `api_mode` — adding a provider requires no core edit. Shape mirrors Hermes' `providers.base.ProviderProfile` so profiles port between the two agents.
+
+Quirks are matched on **model id** via `owns_model()`, not on the configured backend, so a routed model (`deepseek/deepseek-v4-pro` over OpenRouter) still gets its own provider's handling. `profile_for_model()` does that lookup.
+
+### Thinking-mode models (DeepSeek V4)
+DeepSeek's V4 family defaults thinking ON when `extra_body.thinking` is unset, returns `reasoning_content`, and then enforces that later turns echo it back. Combined with full-history replay, a backend that drops the field hits HTTP 400 `reasoning_content must be passed back` right after the first tool call.
+
+`OpenAIAgent` handles this by (a) always sending `extra_body.thinking` explicitly for V4+ models, (b) mapping `reasoning_effort` (`xhigh`/`max`/`ultra` → `max`), and (c) capturing `reasoning_content` off the response and echoing it back on replay. Detection is substring-based so routed ids (`deepseek/deepseek-v4-pro` via OpenRouter) behave like native ones; `deepseek-v3*` is excluded so the V3 wire format is untouched. This mirrors the profile in Hermes' `plugins/model-providers/deepseek` so both agents on the droplet speak the same wire format. Pinned by `tests/test_deepseek_wire.py` (fake client — no live API).
+
 ### Research state
 Each autolab project has:
 - `.autolab/state.json` — machine state (iteration counter, experiment counts)

@@ -161,8 +161,8 @@ def test_render_dot():
         assert "Test directive" in dot
         assert "camp_a" in dot
         assert "camp_b" in dot
-        assert "#2E7D32" in dot  # best path green color
-        assert "penwidth=3" in dot  # global best thick border
+        assert "#1B5E20" in dot  # best path green color
+        assert "penwidth=5" in dot  # global best thick border
 
 
 def test_empty_project():

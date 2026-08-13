@@ -3,10 +3,39 @@ version: 1
 directive: "{{ goal }}"
 
 agent:
-  backend: claude-code          # claude-code | openai | anthropic | openai-compatible
-  # model: claude-opus-4-6
+  # The executing model is swappable — everything below the agent block
+  # (campaigns, runners, metrics, journal, state) is model-independent.
+  # Run `autolab providers` to list backends, their default models, and whether
+  # each one's API key is set.
+  #
+  # agent-driven (the default) means an agent harness — Claude Code, Hermes, any
+  # model-routed agent — reads RESEARCH_PROMPT.md and runs the cycle with its own
+  # tools and its own model selection. Autolab needs no key, model, or endpoint;
+  # you switch models in the harness. Leave this alone unless you want
+  # `autolab loop` to drive the research itself.
+  backend: agent-driven
+
+  # Each backend supplies its own endpoint, key env var, and default model.
+  # Anything set here overrides those defaults.
+  # model: claude-opus-5
   # api_key_env: ANTHROPIC_API_KEY
-  # base_url: http://localhost:11434/v1  # for openai-compatible
+  # base_url: http://localhost:11434/v1
+  # max_tokens: 16000
+
+  # Thinking-mode models (DeepSeek V4 family) only:
+  #   thinking: true            # default true; sent explicitly either way
+  #   reasoning_effort: high    # low | medium | high | max (omit for provider default)
+  #
+  # Swapping the executing model is a one-line change:
+  #   backend: anthropic        # claude-opus-5
+  #   backend: deepseek         # deepseek-v4-pro, native API
+  #   backend: ollama           # local models
+  #   backend: openrouter       # any routed model, e.g.
+  #     model: deepseek/deepseek-v4-pro
+  #
+  # To add a provider autolab doesn't ship, drop a .py file calling
+  # register_provider(...) into ~/.autolab/providers/ or ./providers/ —
+  # no autolab edit required. See docs/providers.md.
 
 strategy:
   moonshot_ratio: 0.5

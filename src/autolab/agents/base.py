@@ -30,6 +30,12 @@ class AgentMessage:
     content: str = ""
     tool_calls: list[ToolCall] = field(default_factory=list)
     tool_result: ToolResult | None = None
+    # Reasoning text emitted by thinking-mode models (DeepSeek V4's
+    # `reasoning_content`). Some providers enforce a contract that assistant
+    # turns carrying reasoning must echo it back on subsequent requests, so the
+    # harness must round-trip this rather than drop it. Ignored by providers
+    # that do not use it.
+    reasoning_content: str | None = None
 
 
 # Tools available to the research agent during the loop.

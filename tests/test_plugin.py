@@ -45,12 +45,35 @@ def test_skills_exist():
 
 
 def test_hooks_valid():
+    """hooks.json must match Claude Code's hook schema.
+
+    That schema is keyed by event name, with each entry holding a `hooks` list
+    of {type, command} objects — NOT a flat list of {event, command} pairs.
+    A flat list is silently ignored by Claude Code, so the Stop hook never
+    fires and the research loop cannot continue past one iteration.
+    """
     hooks_file = PLUGIN_DIR / "hooks" / "hooks.json"
     assert hooks_file.exists()
     data = json.loads(hooks_file.read_text())
     assert "hooks" in data
-    assert len(data["hooks"]) >= 1
-    assert data["hooks"][0]["event"] == "Stop"
+    assert isinstance(data["hooks"], dict), "hooks must be keyed by event name"
+
+    stop_matchers = data["hooks"].get("Stop")
+    assert stop_matchers, "missing Stop hook"
+    assert isinstance(stop_matchers, list)
+
+    commands = [
+        entry
+        for matcher in stop_matchers
+        for entry in matcher.get("hooks", [])
+    ]
+    assert commands, "Stop matcher declares no hooks"
+    for entry in commands:
+        assert entry["type"] == "command"
+        assert entry["command"]
+    assert any(
+        "research-stop-hook.sh" in entry["command"] for entry in commands
+    ), "Stop hook does not invoke research-stop-hook.sh"
 
 
 def test_scripts_executable():

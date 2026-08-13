@@ -7,6 +7,16 @@ import os
 from typing import Any
 
 from .base import AgentBackend, AgentMessage, ToolCall
+from .providers import ProviderProfile, profile_for_model
+
+
+def _model_supports_thinking(model: str | None) -> bool:
+    """True when some registered provider claims `model` as a thinking model.
+
+    Thin wrapper over the provider registry — the per-provider rule lives in
+    that provider's profile, not here.
+    """
+    return profile_for_model(model) is not None
 
 
 class OpenAIAgent(AgentBackend):
@@ -26,6 +36,9 @@ class OpenAIAgent(AgentBackend):
         api_key_env: str = "OPENAI_API_KEY",
         base_url: str | None = None,
         max_tokens: int = 4096,
+        thinking: bool = True,
+        reasoning_effort: str | None = None,
+        profile: ProviderProfile | None = None,
     ):
         try:
             import openai
@@ -49,9 +62,38 @@ class OpenAIAgent(AgentBackend):
         self._client = openai.OpenAI(**kwargs)
         self._model = model
         self._max_tokens = max_tokens
+        self._thinking = thinking
+        self._reasoning_effort = reasoning_effort
+        self._profile = profile
 
     def model_name(self) -> str:
         return self._model
+
+    def _wire_profile(self) -> ProviderProfile | None:
+        """The profile whose wire quirks apply to this request.
+
+        Prefers a profile that claims the model by id, so a model reached
+        through a router (`deepseek/deepseek-v4-pro` over OpenRouter) still gets
+        its own provider's handling rather than the router's. Falls back to the
+        profile the agent was constructed with.
+        """
+        return profile_for_model(self._model) or self._profile
+
+    def _thinking_kwargs(self) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Build (extra_body, top_level) request extras from the provider profile.
+
+        Providers without quirks return empty dicts, leaving the wire format
+        untouched. The per-provider rules live in the profiles — see
+        `agents/providers/builtin.py`.
+        """
+        profile = self._wire_profile()
+        if profile is None:
+            return {}, {}
+        return profile.build_api_kwargs_extras(
+            model=self._model,
+            thinking=self._thinking,
+            reasoning_effort=self._reasoning_effort,
+        )
 
     def format_tools(self, tools: list[dict]) -> list[dict]:
         """Convert generic tool schemas to OpenAI function-calling format."""
@@ -93,16 +135,24 @@ class OpenAIAgent(AgentBackend):
                             "arguments": json.dumps(tc.arguments),
                         },
                     })
-                api_messages.append({
+                entry = {
                     "role": "assistant",
                     "content": msg.content or None,
                     "tool_calls": tc_list,
-                })
+                }
+                # Thinking models require their reasoning echoed back verbatim
+                # on replay, or the request is rejected.
+                if msg.reasoning_content:
+                    entry["reasoning_content"] = msg.reasoning_content
+                api_messages.append(entry)
             else:
-                api_messages.append({
+                entry = {
                     "role": msg.role,
                     "content": msg.content,
-                })
+                }
+                if msg.role == "assistant" and msg.reasoning_content:
+                    entry["reasoning_content"] = msg.reasoning_content
+                api_messages.append(entry)
 
         kwargs: dict[str, Any] = {
             "model": self._model,
@@ -111,6 +161,11 @@ class OpenAIAgent(AgentBackend):
         }
         if tools:
             kwargs["tools"] = self.format_tools(tools)
+
+        extra_body, top_level = self._thinking_kwargs()
+        kwargs.update(top_level)
+        if extra_body:
+            kwargs["extra_body"] = extra_body
 
         response = self._client.chat.completions.create(**kwargs)
         choice = response.choices[0]
@@ -133,4 +188,7 @@ class OpenAIAgent(AgentBackend):
             role="assistant",
             content=message.content or "",
             tool_calls=tool_calls,
+            # Captured so the next request can echo it back. Providers that
+            # don't emit reasoning simply leave this None.
+            reasoning_content=getattr(message, "reasoning_content", None),
         )

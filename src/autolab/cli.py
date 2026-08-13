@@ -3,13 +3,59 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
 import click
+import yaml
 
 from .core.loop import ResearchLoop
 from .metrics.db import ResultsDB
+
+
+def _resolve_metric_direction(
+    project_dir: Path, metric_name: str, campaign_name: str | None
+) -> tuple[str, str | None]:
+    """Resolve the sort direction for a metric from the campaign YAMLs.
+
+    A campaign declares `metrics.direction`, but `results` had no way to see it
+    and always sorted descending — reporting the *worst* run first for any
+    minimize-direction metric such as latency.
+
+    Returns (direction, source_campaign_name). Falls back to "maximize" when no
+    campaign declares this metric as primary, preserving the historical default.
+    """
+    campaigns_dir = project_dir / "campaigns"
+    if not campaigns_dir.is_dir():
+        return "maximize", None
+
+    declared: dict[str, str] = {}
+    for path in sorted(campaigns_dir.glob("*.y*ml")):
+        try:
+            config = yaml.safe_load(path.read_text()) or {}
+        except (yaml.YAMLError, OSError):
+            continue
+        if not isinstance(config, dict):
+            continue
+        metrics = config.get("metrics")
+        if not isinstance(metrics, dict) or metrics.get("primary") != metric_name:
+            continue
+        direction = metrics.get("direction", "maximize")
+        if direction not in ("maximize", "minimize"):
+            continue
+        name = config.get("name")
+        if campaign_name and name == campaign_name:
+            return direction, name
+        if not campaign_name and name:
+            declared[name] = direction
+
+    # No campaign filter: only infer when every campaign using this metric agrees.
+    if not campaign_name:
+        agreed = set(declared.values())
+        if len(agreed) == 1:
+            return agreed.pop(), None
+    return "maximize", None
 
 
 @click.group()
@@ -77,8 +123,15 @@ def status(db_path: str):
 @click.option("--campaign", "-c", "campaign_name", default=None, help="Filter by campaign")
 @click.option("--metric", "-m", "metric_name", default=None, help="Sort by metric")
 @click.option("--top", "-n", "limit", default=10, help="Number of results")
-@click.option("--direction", "-d", "direction", default="maximize", type=click.Choice(["maximize", "minimize"]))
-def results(db_path: str, campaign_name: str | None, metric_name: str | None, limit: int, direction: str):
+@click.option(
+    "--direction",
+    "-d",
+    "direction",
+    default=None,
+    type=click.Choice(["maximize", "minimize"]),
+    help="Sort direction. Defaults to the campaign's declared metrics.direction.",
+)
+def results(db_path: str, campaign_name: str | None, metric_name: str | None, limit: int, direction: str | None):
     """Query experiment results."""
     if not Path(db_path).exists():
         click.echo("No results database found.")
@@ -87,8 +140,14 @@ def results(db_path: str, campaign_name: str | None, metric_name: str | None, li
     db = ResultsDB(db_path)
 
     if metric_name:
+        source = None
+        if direction is None:
+            direction, source = _resolve_metric_direction(
+                Path(db_path).resolve().parent, metric_name, campaign_name
+            )
         rows = db.best_by_metric(metric_name, direction, campaign_name, limit)
-        click.echo(f"\nTop {len(rows)} by {metric_name} ({direction}):")
+        label = f"{direction}, from campaign {source}" if source else direction
+        click.echo(f"\nTop {len(rows)} by {metric_name} ({label}):")
         for r in rows:
             val = r.get("metric_value", "N/A")
             click.echo(f"  {r['experiment_name']}: {metric_name}={val}")
@@ -141,7 +200,7 @@ def tree(directory: str, top_n: int, metric_override: str | None, no_color: bool
 
 @main.command()
 @click.option("--dir", "-d", "directory", default=".", help="Project directory")
-@click.option("--backend", "-b", default=None, help="Agent backend: anthropic | openai | openai-compatible")
+@click.option("--backend", "-b", default=None, help="Agent backend (see `autolab providers` for the full list)")
 @click.option("--model", "-m", default=None, help="Model ID override")
 @click.option("--max-iterations", "-n", default=10, help="Max research iterations")
 @click.option("--api-key", default=None, help="API key (or set env var)")
@@ -166,11 +225,42 @@ def loop(directory: str, backend: str | None, model: str | None, max_iterations:
     base_url = base_url or agent_config.get("base_url")
 
     # Create agent backend
-    agent = _create_agent(backend, model, api_key, api_key_env, base_url)
+    agent = _create_agent(
+        backend, model, api_key, api_key_env, base_url, agent_config, project_dir
+    )
 
     from .agents.harness import AgentHarness
     harness = AgentHarness(agent, project_dir, max_tool_rounds=50)
     harness.run_loop(max_iterations=max_iterations)
+
+
+@main.command()
+@click.option("--dir", "-d", "directory", default=".", help="Project directory")
+def providers(directory: str):
+    """List available model providers and their defaults."""
+    from .agents.providers import EXTERNAL, list_providers, load_external_providers
+
+    load_external_providers(Path(directory).resolve())
+
+    click.echo("\nAvailable backends (set agent.backend in autolab.yaml):\n")
+    for p in list_providers():
+        label = p.display_name or p.name
+        click.echo(f"  {p.name}  —  {label}")
+        if p.description:
+            click.echo(f"      {p.description}")
+        if p.api_mode == EXTERNAL:
+            click.echo("      driven by an external harness, not `autolab loop`")
+        else:
+            if p.default_model:
+                click.echo(f"      default model: {p.default_model}")
+            if p.fallback_models:
+                click.echo(f"      models: {', '.join(p.fallback_models)}")
+            if p.base_url:
+                click.echo(f"      base_url: {p.base_url}")
+            if p.api_key_env:
+                status = "set" if os.environ.get(p.api_key_env) else "NOT set"
+                click.echo(f"      key env: {p.api_key_env} ({status})")
+        click.echo()
 
 
 def _create_agent(
@@ -179,35 +269,89 @@ def _create_agent(
     api_key: str | None,
     api_key_env: str | None,
     base_url: str | None,
+    agent_config: dict | None = None,
+    project_dir: str | Path | None = None,
 ):
-    """Create an agent backend from config."""
-    if backend == "anthropic":
+    """Create an agent backend from a provider profile.
+
+    The provider registry owns endpoints, key env vars, default models, and wire
+    quirks — this function only resolves config precedence (explicit > profile
+    default) and picks the backend class that speaks the profile's api_mode.
+    """
+    from .agents.providers import (
+        CHAT_COMPLETIONS,
+        EXTERNAL,
+        MESSAGES,
+        get_provider,
+        load_external_providers,
+        provider_names,
+    )
+
+    agent_config = agent_config or {}
+    # User- and project-supplied profiles can add providers or override built-ins.
+    load_external_providers(project_dir)
+
+    profile = get_provider(backend)
+    if profile is None:
+        click.echo(
+            f"Unknown backend: {backend}. Use one of: {', '.join(provider_names())}",
+            err=True,
+        )
+        sys.exit(1)
+
+    if profile.api_mode == EXTERNAL:
+        hint = profile.metadata.get("external_hint") or (
+            f"The '{profile.name}' backend is driven by an external harness, "
+            "not by `autolab loop`."
+        )
+        cli_backends = [
+            p.name for p in
+            (get_provider(n) for n in provider_names())
+            if p and p.api_mode != EXTERNAL
+        ]
+        click.echo(
+            f"{hint}\n\nTo drive this project from the CLI instead, set "
+            f"agent.backend in autolab.yaml to one of: {', '.join(cli_backends)}.",
+            err=True,
+        )
+        sys.exit(1)
+
+    # Explicit config always wins over the profile's defaults.
+    resolved_model = model or profile.default_model or None
+    resolved_base_url = base_url or profile.base_url or None
+    resolved_key_env = api_key_env or profile.api_key_env or None
+
+    kwargs: dict = {}
+    if resolved_model:
+        kwargs["model"] = resolved_model
+    if api_key:
+        kwargs["api_key"] = api_key
+    if resolved_key_env:
+        kwargs["api_key_env"] = resolved_key_env
+    if agent_config.get("max_tokens"):
+        kwargs["max_tokens"] = int(agent_config["max_tokens"])
+
+    if profile.api_mode == MESSAGES:
         from .agents.anthropic_agent import AnthropicAgent
-        kwargs = {}
-        if model:
-            kwargs["model"] = model
-        if api_key:
-            kwargs["api_key"] = api_key
-        if api_key_env:
-            kwargs["api_key_env"] = api_key_env
         return AnthropicAgent(**kwargs)
 
-    elif backend in ("openai", "openai-compatible"):
+    if profile.api_mode == CHAT_COMPLETIONS:
         from .agents.openai_agent import OpenAIAgent
-        kwargs = {}
-        if model:
-            kwargs["model"] = model
-        if api_key:
-            kwargs["api_key"] = api_key
-        if api_key_env:
-            kwargs["api_key_env"] = api_key_env
-        if base_url:
-            kwargs["base_url"] = base_url
+        if resolved_base_url:
+            kwargs["base_url"] = resolved_base_url
+        if "thinking" in agent_config:
+            kwargs["thinking"] = bool(agent_config["thinking"])
+        if agent_config.get("reasoning_effort"):
+            kwargs["reasoning_effort"] = agent_config["reasoning_effort"]
+        kwargs["profile"] = profile
         return OpenAIAgent(**kwargs)
 
-    else:
-        click.echo(f"Unknown backend: {backend}. Use: anthropic, openai, openai-compatible", err=True)
-        sys.exit(1)
+    click.echo(
+        f"Provider '{profile.name}' declares unknown api_mode "
+        f"'{profile.api_mode}'.",
+        err=True,
+    )
+    sys.exit(1)
 
 
 if __name__ == "__main__":

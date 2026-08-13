@@ -18,10 +18,12 @@ class AnthropicAgent(AgentBackend):
 
     def __init__(
         self,
-        model: str = "claude-sonnet-4-20250514",
+        model: str = "claude-opus-5",
         api_key: str | None = None,
         api_key_env: str = "ANTHROPIC_API_KEY",
-        max_tokens: int = 4096,
+        # Current Claude models think by default, and max_tokens caps thinking
+        # plus response text together — 4096 truncates research turns mid-answer.
+        max_tokens: int = 16000,
     ):
         try:
             import anthropic
