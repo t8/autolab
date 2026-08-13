@@ -7,9 +7,54 @@ import sys
 from pathlib import Path
 
 import click
+import yaml
 
 from .core.loop import ResearchLoop
 from .metrics.db import ResultsDB
+
+
+def _resolve_metric_direction(
+    project_dir: Path, metric_name: str, campaign_name: str | None
+) -> tuple[str, str | None]:
+    """Resolve the sort direction for a metric from the campaign YAMLs.
+
+    A campaign declares `metrics.direction`, but `results` had no way to see it
+    and always sorted descending — reporting the *worst* run first for any
+    minimize-direction metric such as latency.
+
+    Returns (direction, source_campaign_name). Falls back to "maximize" when no
+    campaign declares this metric as primary, preserving the historical default.
+    """
+    campaigns_dir = project_dir / "campaigns"
+    if not campaigns_dir.is_dir():
+        return "maximize", None
+
+    declared: dict[str, str] = {}
+    for path in sorted(campaigns_dir.glob("*.y*ml")):
+        try:
+            config = yaml.safe_load(path.read_text()) or {}
+        except (yaml.YAMLError, OSError):
+            continue
+        if not isinstance(config, dict):
+            continue
+        metrics = config.get("metrics")
+        if not isinstance(metrics, dict) or metrics.get("primary") != metric_name:
+            continue
+        direction = metrics.get("direction", "maximize")
+        if direction not in ("maximize", "minimize"):
+            continue
+        name = config.get("name")
+        if campaign_name and name == campaign_name:
+            return direction, name
+        if not campaign_name and name:
+            declared[name] = direction
+
+    # No campaign filter: only infer when every campaign using this metric agrees.
+    if not campaign_name:
+        agreed = set(declared.values())
+        if len(agreed) == 1:
+            return agreed.pop(), None
+    return "maximize", None
 
 
 @click.group()
@@ -77,8 +122,15 @@ def status(db_path: str):
 @click.option("--campaign", "-c", "campaign_name", default=None, help="Filter by campaign")
 @click.option("--metric", "-m", "metric_name", default=None, help="Sort by metric")
 @click.option("--top", "-n", "limit", default=10, help="Number of results")
-@click.option("--direction", "-d", "direction", default="maximize", type=click.Choice(["maximize", "minimize"]))
-def results(db_path: str, campaign_name: str | None, metric_name: str | None, limit: int, direction: str):
+@click.option(
+    "--direction",
+    "-d",
+    "direction",
+    default=None,
+    type=click.Choice(["maximize", "minimize"]),
+    help="Sort direction. Defaults to the campaign's declared metrics.direction.",
+)
+def results(db_path: str, campaign_name: str | None, metric_name: str | None, limit: int, direction: str | None):
     """Query experiment results."""
     if not Path(db_path).exists():
         click.echo("No results database found.")
@@ -87,8 +139,14 @@ def results(db_path: str, campaign_name: str | None, metric_name: str | None, li
     db = ResultsDB(db_path)
 
     if metric_name:
+        source = None
+        if direction is None:
+            direction, source = _resolve_metric_direction(
+                Path(db_path).resolve().parent, metric_name, campaign_name
+            )
         rows = db.best_by_metric(metric_name, direction, campaign_name, limit)
-        click.echo(f"\nTop {len(rows)} by {metric_name} ({direction}):")
+        label = f"{direction}, from campaign {source}" if source else direction
+        click.echo(f"\nTop {len(rows)} by {metric_name} ({label}):")
         for r in rows:
             val = r.get("metric_value", "N/A")
             click.echo(f"  {r['experiment_name']}: {metric_name}={val}")
