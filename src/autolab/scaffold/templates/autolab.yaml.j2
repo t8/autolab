@@ -8,9 +8,12 @@ agent:
   # Run `autolab providers` to list backends, their default models, and whether
   # each one's API key is set.
   #
-  # claude-code is driven by the Claude Code plugin (/autolab:research-loop),
-  # NOT by `autolab loop`. Every other backend is driven by `autolab loop`.
-  backend: claude-code
+  # agent-driven (the default) means an agent harness — Claude Code, Hermes, any
+  # model-routed agent — reads RESEARCH_PROMPT.md and runs the cycle with its own
+  # tools and its own model selection. Autolab needs no key, model, or endpoint;
+  # you switch models in the harness. Leave this alone unless you want
+  # `autolab loop` to drive the research itself.
+  backend: agent-driven
 
   # Each backend supplies its own endpoint, key env var, and default model.
   # Anything set here overrides those defaults.

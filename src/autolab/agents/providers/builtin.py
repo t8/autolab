@@ -37,15 +37,24 @@ register_provider(ProviderProfile(
 # ── Claude Code (driven by the plugin, not by `autolab loop`) ────────────────
 
 register_provider(ProviderProfile(
-    name="claude-code",
+    name="agent-driven",
     api_mode=EXTERNAL,
-    display_name="Claude Code",
-    description="Driven by the Claude Code plugin via /autolab:research-loop",
+    aliases=("claude-code", "hermes", "external"),
+    display_name="Agent-driven",
+    description=(
+        "An agent harness drives the loop and picks its own model; autolab is "
+        "the CLI it calls. No model config here."
+    ),
     metadata={
         "external_hint": (
-            "The 'claude-code' backend is driven by the Claude Code plugin, not "
-            "by `autolab loop`.\nStart it from a Claude Code session in the "
-            "project directory with:\n  /autolab:research-loop"
+            "This project is agent-driven: a harness reads RESEARCH_PROMPT.md and "
+            "runs the cycle using its own tools and its own model selection, so "
+            "autolab needs no API key, model, or endpoint.\n"
+            "  Claude Code : /autolab:research-loop  (Stop hook continues the loop)\n"
+            "  Hermes      : point it at the project and ask it to follow\n"
+            "                RESEARCH_PROMPT.md; use a cron job to keep iterating\n"
+            "\nThe harness's own model router decides which model executes — "
+            "switch models there, not here."
         ),
     },
 ))

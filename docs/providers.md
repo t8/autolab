@@ -1,5 +1,17 @@
 # Providers — swapping the executing model
 
+> **Most projects need nothing on this page.** If an agent harness (Claude Code,
+> Hermes/OpenClaw, any model-routed agent) drives the research loop, that harness
+> picks the model and autolab needs no API key, model id, or endpoint — keep the
+> default `backend: agent-driven`. Everything below applies only to `autolab loop`,
+> where autolab itself owns the tool-use loop and therefore has to talk to a
+> provider directly.
+>
+> | How the loop runs | Who picks the model | Autolab needs |
+> |---|---|---|
+> | An agent harness reads `RESEARCH_PROMPT.md` and calls the `autolab` CLI | The harness's own router | nothing |
+> | `autolab loop` | `autolab.yaml` | key, endpoint, model, wire format |
+
 Autolab separates **the research architecture** from **the model that executes it**.
 Campaigns, runners, metrics, the journal, the plan, and project state are all
 model-independent. The seam between them is a **provider profile**.

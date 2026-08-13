@@ -29,7 +29,7 @@ from autolab.agents.providers import (
 def test_builtin_providers_registered():
     names = provider_names()
     for expected in ("anthropic", "openai", "openai-compatible",
-                     "deepseek", "openrouter", "ollama", "claude-code"):
+                     "deepseek", "openrouter", "ollama", "agent-driven"):
         assert expected in names, f"missing built-in provider: {expected}"
 
 
@@ -43,8 +43,11 @@ def test_lookup_by_alias_and_case():
 def test_api_modes():
     assert get_provider("anthropic").api_mode == MESSAGES
     assert get_provider("deepseek").api_mode == CHAT_COMPLETIONS
-    # claude-code is driven by the plugin, not `autolab loop`
-    assert get_provider("claude-code").api_mode == EXTERNAL
+    # agent-driven means a harness owns the loop and picks the model
+    assert get_provider("agent-driven").api_mode == EXTERNAL
+    # legacy/harness-specific aliases resolve to the same profile
+    assert get_provider("claude-code") is get_provider("agent-driven")
+    assert get_provider("hermes") is get_provider("agent-driven")
 
 
 def test_profiles_declare_key_env_and_defaults():
