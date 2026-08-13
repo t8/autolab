@@ -3,26 +3,36 @@ version: 1
 directive: "{{ goal }}"
 
 agent:
-  # claude-code | anthropic | openai | openai-compatible | deepseek
+  # The executing model is swappable — everything below the agent block
+  # (campaigns, runners, metrics, journal, state) is model-independent.
+  # Run `autolab providers` to list backends, their default models, and whether
+  # each one's API key is set.
   #
   # claude-code is driven by the Claude Code plugin (/autolab:research-loop),
-  # NOT by `autolab loop`. The other backends are driven by `autolab loop`.
+  # NOT by `autolab loop`. Every other backend is driven by `autolab loop`.
   backend: claude-code
-  # model: claude-opus-4-6
+
+  # Each backend supplies its own endpoint, key env var, and default model.
+  # Anything set here overrides those defaults.
+  # model: claude-opus-5
   # api_key_env: ANTHROPIC_API_KEY
-  # base_url: http://localhost:11434/v1  # for openai-compatible
+  # base_url: http://localhost:11434/v1
+  # max_tokens: 16000
 
   # Thinking-mode models (DeepSeek V4 family) only:
   #   thinking: true            # default true; sent explicitly either way
   #   reasoning_effort: high    # low | medium | high | max (omit for provider default)
   #
-  # DeepSeek example (native API):
-  #   backend: deepseek         # defaults: deepseek-v4-pro, DEEPSEEK_API_KEY
-  # DeepSeek example (routed via OpenRouter):
-  #   backend: openai-compatible
-  #   model: deepseek/deepseek-v4-pro
-  #   base_url: https://openrouter.ai/api/v1
-  #   api_key_env: OPENROUTER_API_KEY
+  # Swapping the executing model is a one-line change:
+  #   backend: anthropic        # claude-opus-5
+  #   backend: deepseek         # deepseek-v4-pro, native API
+  #   backend: ollama           # local models
+  #   backend: openrouter       # any routed model, e.g.
+  #     model: deepseek/deepseek-v4-pro
+  #
+  # To add a provider autolab doesn't ship, drop a .py file calling
+  # register_provider(...) into ~/.autolab/providers/ or ./providers/ —
+  # no autolab edit required. See docs/providers.md.
 
 strategy:
   moonshot_ratio: 0.5

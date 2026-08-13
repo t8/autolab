@@ -60,6 +60,11 @@ The LLM agent gets 7 tools: `run_campaign`, `query_results`, `read_file`, `write
 
 `AgentHarness.run_iteration` accumulates messages and replays the **entire history** on every round. Any per-message field a provider requires on replay must therefore survive the round trip — see `AgentMessage.reasoning_content`.
 
+### Provider profiles (`agents/providers/`)
+The executing model is decoupled from the research architecture. A `ProviderProfile` declares api_mode (`chat_completions` | `messages` | `external`), env vars, base_url, default/fallback models, and request quirks; `registry.py` handles name/alias lookup and loads external profiles from `~/.autolab/providers/*.py` and `<project>/providers/*.py`. `cli._create_agent` resolves a profile and picks the backend class from `api_mode` — adding a provider requires no core edit. Shape mirrors Hermes' `providers.base.ProviderProfile` so profiles port between the two agents.
+
+Quirks are matched on **model id** via `owns_model()`, not on the configured backend, so a routed model (`deepseek/deepseek-v4-pro` over OpenRouter) still gets its own provider's handling. `profile_for_model()` does that lookup.
+
 ### Thinking-mode models (DeepSeek V4)
 DeepSeek's V4 family defaults thinking ON when `extra_body.thinking` is unset, returns `reasoning_content`, and then enforces that later turns echo it back. Combined with full-history replay, a backend that drops the field hits HTTP 400 `reasoning_content must be passed back` right after the first tool call.
 

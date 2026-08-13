@@ -112,6 +112,18 @@ Autolab is LLM-agnostic. The research loop can be driven by:
 Note that **Claude Code** is driven by the plugin (`/autolab:research-loop`), not by
 `autolab loop` — setting `backend: claude-code` and running `autolab loop` will tell you so.
 
+The executing model is **swappable by design**: campaigns, runners, metrics, and
+project state are model-independent, and each provider declares its own endpoint,
+key variable, default model, and request quirks in a profile. Switching models is
+one line in `autolab.yaml`; adding a provider autolab doesn't ship is a `.py` file
+dropped into `~/.autolab/providers/` or `./providers/` — no autolab edit.
+
+```bash
+autolab providers   # backends, default models, and whether each key is set
+```
+
+See [docs/providers.md](docs/providers.md) for the profile contract.
+
 ### Thinking-mode models
 
 DeepSeek's V4 family defaults thinking ON when `extra_body.thinking` is unset. The API

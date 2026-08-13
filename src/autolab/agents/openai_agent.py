@@ -7,28 +7,16 @@ import os
 from typing import Any
 
 from .base import AgentBackend, AgentMessage, ToolCall
+from .providers import ProviderProfile, profile_for_model
 
 
 def _model_supports_thinking(model: str | None) -> bool:
-    """True for DeepSeek model families that emit ``reasoning_content``.
+    """True when some registered provider claims `model` as a thinking model.
 
-    Covers the V4 family (``deepseek-v4-pro``, ``deepseek-v4-flash``) and any
-    later generation; V3 is explicitly excluded because its wire format has no
-    thinking block and must not be perturbed. Matching is substring-based on
-    purpose so routed model ids (``deepseek/deepseek-v4-pro`` via OpenRouter)
-    are detected the same as native ones.
-
-    Mirrors the profile in Hermes' deepseek model-provider plugin so both
-    agents on this machine speak the same wire format.
+    Thin wrapper over the provider registry — the per-provider rule lives in
+    that provider's profile, not here.
     """
-    m = (model or "").strip().lower()
-    if not m or "deepseek" not in m:
-        return False
-    # normalize a routed prefix like "deepseek/deepseek-v4-pro"
-    tail = m.rsplit("/", 1)[-1]
-    if tail.startswith("deepseek-v3"):
-        return False
-    return tail.startswith("deepseek-v")
+    return profile_for_model(model) is not None
 
 
 class OpenAIAgent(AgentBackend):
@@ -50,6 +38,7 @@ class OpenAIAgent(AgentBackend):
         max_tokens: int = 4096,
         thinking: bool = True,
         reasoning_effort: str | None = None,
+        profile: ProviderProfile | None = None,
     ):
         try:
             import openai
@@ -75,41 +64,36 @@ class OpenAIAgent(AgentBackend):
         self._max_tokens = max_tokens
         self._thinking = thinking
         self._reasoning_effort = reasoning_effort
+        self._profile = profile
 
     def model_name(self) -> str:
         return self._model
 
-    def _thinking_kwargs(self) -> tuple[dict[str, Any], dict[str, Any]]:
-        """Build (extra_body, top_level) request extras for thinking models.
+    def _wire_profile(self) -> ProviderProfile | None:
+        """The profile whose wire quirks apply to this request.
 
-        DeepSeek V4 defaults thinking ON when ``extra_body.thinking`` is unset.
-        It then returns ``reasoning_content`` and enforces that later turns echo
-        it back — which lands on HTTP 400 "reasoning_content must be passed
-        back" right after the first tool call, since the harness replays the
-        full message history every round. Setting the flag explicitly (either
-        value) makes the behavior deterministic instead of implicit.
-
-        Returns empty dicts for non-thinking models so their wire format is
-        untouched.
+        Prefers a profile that claims the model by id, so a model reached
+        through a router (`deepseek/deepseek-v4-pro` over OpenRouter) still gets
+        its own provider's handling rather than the router's. Falls back to the
+        profile the agent was constructed with.
         """
-        extra_body: dict[str, Any] = {}
-        top_level: dict[str, Any] = {}
+        return profile_for_model(self._model) or self._profile
 
-        if not _model_supports_thinking(self._model):
-            return extra_body, top_level
+    def _thinking_kwargs(self) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Build (extra_body, top_level) request extras from the provider profile.
 
-        extra_body["thinking"] = {"type": "enabled" if self._thinking else "disabled"}
-        if not self._thinking:
-            return extra_body, top_level
-
-        effort = (self._reasoning_effort or "").strip().lower()
-        if effort in {"xhigh", "max", "ultra"}:
-            top_level["reasoning_effort"] = "max"
-        elif effort in {"low", "medium", "high"}:
-            top_level["reasoning_effort"] = effort
-        # unset -> omit, letting the provider apply its own default
-
-        return extra_body, top_level
+        Providers without quirks return empty dicts, leaving the wire format
+        untouched. The per-provider rules live in the profiles — see
+        `agents/providers/builtin.py`.
+        """
+        profile = self._wire_profile()
+        if profile is None:
+            return {}, {}
+        return profile.build_api_kwargs_extras(
+            model=self._model,
+            thinking=self._thinking,
+            reasoning_effort=self._reasoning_effort,
+        )
 
     def format_tools(self, tools: list[dict]) -> list[dict]:
         """Convert generic tool schemas to OpenAI function-calling format."""
