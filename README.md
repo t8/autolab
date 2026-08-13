@@ -106,7 +106,30 @@ Autolab is LLM-agnostic. The research loop can be driven by:
 | **Claude Code** | Plugin with Ralph Wiggum loop | Richest: skills, hooks, native tools |
 | **Anthropic API** | `autolab loop --backend anthropic` | Direct API, any Claude model |
 | **OpenAI API** | `autolab loop --backend openai` | GPT-4o, o1, o3 |
-| **OpenAI-compatible** | `autolab loop --backend openai-compatible --base-url ...` | Ollama, vLLM, Together |
+| **OpenAI-compatible** | `autolab loop --backend openai-compatible --base-url ...` | Ollama, vLLM, Together, OpenRouter |
+| **DeepSeek** | `autolab loop --backend deepseek` | DeepSeek V4 family (thinking-aware) |
+
+Note that **Claude Code** is driven by the plugin (`/autolab:research-loop`), not by
+`autolab loop` — setting `backend: claude-code` and running `autolab loop` will tell you so.
+
+### Thinking-mode models
+
+DeepSeek's V4 family defaults thinking ON when `extra_body.thinking` is unset. The API
+then returns `reasoning_content` and requires later turns to echo it back — and since the
+agent harness replays the full message history on every tool round, a backend that drops
+that field fails with HTTP 400 `reasoning_content must be passed back` immediately after
+its first tool call. Autolab sends the thinking flag explicitly and round-trips
+`reasoning_content`, so V4 works with tool use out of the box:
+
+```yaml
+agent:
+  backend: deepseek           # defaults to deepseek-v4-pro + DEEPSEEK_API_KEY
+  thinking: true              # default; sent explicitly either way
+  reasoning_effort: high      # low | medium | high | max (omit for provider default)
+```
+
+The same handling applies to routed ids such as `deepseek/deepseek-v4-pro` over
+OpenRouter. DeepSeek V3 is deliberately excluded — its wire format has no thinking block.
 
 ## Claude Code Plugin
 

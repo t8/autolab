@@ -3,10 +3,26 @@ version: 1
 directive: "{{ goal }}"
 
 agent:
-  backend: claude-code          # claude-code | openai | anthropic | openai-compatible
+  # claude-code | anthropic | openai | openai-compatible | deepseek
+  #
+  # claude-code is driven by the Claude Code plugin (/autolab:research-loop),
+  # NOT by `autolab loop`. The other backends are driven by `autolab loop`.
+  backend: claude-code
   # model: claude-opus-4-6
   # api_key_env: ANTHROPIC_API_KEY
   # base_url: http://localhost:11434/v1  # for openai-compatible
+
+  # Thinking-mode models (DeepSeek V4 family) only:
+  #   thinking: true            # default true; sent explicitly either way
+  #   reasoning_effort: high    # low | medium | high | max (omit for provider default)
+  #
+  # DeepSeek example (native API):
+  #   backend: deepseek         # defaults: deepseek-v4-pro, DEEPSEEK_API_KEY
+  # DeepSeek example (routed via OpenRouter):
+  #   backend: openai-compatible
+  #   model: deepseek/deepseek-v4-pro
+  #   base_url: https://openrouter.ai/api/v1
+  #   api_key_env: OPENROUTER_API_KEY
 
 strategy:
   moonshot_ratio: 0.5

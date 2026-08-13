@@ -199,7 +199,7 @@ def tree(directory: str, top_n: int, metric_override: str | None, no_color: bool
 
 @main.command()
 @click.option("--dir", "-d", "directory", default=".", help="Project directory")
-@click.option("--backend", "-b", default=None, help="Agent backend: anthropic | openai | openai-compatible")
+@click.option("--backend", "-b", default=None, help="Agent backend: anthropic | openai | openai-compatible | deepseek")
 @click.option("--model", "-m", default=None, help="Model ID override")
 @click.option("--max-iterations", "-n", default=10, help="Max research iterations")
 @click.option("--api-key", default=None, help="API key (or set env var)")
@@ -224,11 +224,32 @@ def loop(directory: str, backend: str | None, model: str | None, max_iterations:
     base_url = base_url or agent_config.get("base_url")
 
     # Create agent backend
-    agent = _create_agent(backend, model, api_key, api_key_env, base_url)
+    agent = _create_agent(backend, model, api_key, api_key_env, base_url, agent_config)
 
     from .agents.harness import AgentHarness
     harness = AgentHarness(agent, project_dir, max_tool_rounds=50)
     harness.run_loop(max_iterations=max_iterations)
+
+
+# Backends that are driven by an external harness rather than by `autolab loop`.
+_EXTERNAL_BACKENDS = {
+    "claude-code": (
+        "The 'claude-code' backend is driven by the Claude Code plugin, not by "
+        "`autolab loop`.\nStart it from a Claude Code session in the project "
+        "directory with:\n  /autolab:research-loop\n\nTo drive this project from "
+        "the CLI instead, set agent.backend in autolab.yaml to one of: "
+        "anthropic, openai, openai-compatible, deepseek."
+    ),
+}
+
+# Providers reachable through the OpenAI-compatible surface, with their defaults.
+_OPENAI_COMPATIBLE_PRESETS = {
+    "deepseek": {
+        "base_url": "https://api.deepseek.com/v1",
+        "api_key_env": "DEEPSEEK_API_KEY",
+        "model": "deepseek-v4-pro",
+    },
+}
 
 
 def _create_agent(
@@ -237,8 +258,15 @@ def _create_agent(
     api_key: str | None,
     api_key_env: str | None,
     base_url: str | None,
+    agent_config: dict | None = None,
 ):
     """Create an agent backend from config."""
+    agent_config = agent_config or {}
+
+    if backend in _EXTERNAL_BACKENDS:
+        click.echo(_EXTERNAL_BACKENDS[backend], err=True)
+        sys.exit(1)
+
     if backend == "anthropic":
         from .agents.anthropic_agent import AnthropicAgent
         kwargs = {}
@@ -250,21 +278,35 @@ def _create_agent(
             kwargs["api_key_env"] = api_key_env
         return AnthropicAgent(**kwargs)
 
-    elif backend in ("openai", "openai-compatible"):
+    elif backend in ("openai", "openai-compatible") or backend in _OPENAI_COMPATIBLE_PRESETS:
         from .agents.openai_agent import OpenAIAgent
+        preset = _OPENAI_COMPATIBLE_PRESETS.get(backend, {})
         kwargs = {}
-        if model:
-            kwargs["model"] = model
+        # Explicit config always wins over a preset default.
+        resolved_model = model or preset.get("model")
+        resolved_base_url = base_url or preset.get("base_url")
+        resolved_key_env = api_key_env or preset.get("api_key_env")
+        if resolved_model:
+            kwargs["model"] = resolved_model
         if api_key:
             kwargs["api_key"] = api_key
-        if api_key_env:
-            kwargs["api_key_env"] = api_key_env
-        if base_url:
-            kwargs["base_url"] = base_url
+        if resolved_key_env:
+            kwargs["api_key_env"] = resolved_key_env
+        if resolved_base_url:
+            kwargs["base_url"] = resolved_base_url
+        if "thinking" in agent_config:
+            kwargs["thinking"] = bool(agent_config["thinking"])
+        if agent_config.get("reasoning_effort"):
+            kwargs["reasoning_effort"] = agent_config["reasoning_effort"]
         return OpenAIAgent(**kwargs)
 
     else:
-        click.echo(f"Unknown backend: {backend}. Use: anthropic, openai, openai-compatible", err=True)
+        known = ["anthropic", "openai", "openai-compatible"]
+        known += sorted(_OPENAI_COMPATIBLE_PRESETS)
+        known += sorted(_EXTERNAL_BACKENDS)
+        click.echo(
+            f"Unknown backend: {backend}. Use one of: {', '.join(known)}", err=True
+        )
         sys.exit(1)
 
 

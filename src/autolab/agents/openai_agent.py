@@ -9,6 +9,28 @@ from typing import Any
 from .base import AgentBackend, AgentMessage, ToolCall
 
 
+def _model_supports_thinking(model: str | None) -> bool:
+    """True for DeepSeek model families that emit ``reasoning_content``.
+
+    Covers the V4 family (``deepseek-v4-pro``, ``deepseek-v4-flash``) and any
+    later generation; V3 is explicitly excluded because its wire format has no
+    thinking block and must not be perturbed. Matching is substring-based on
+    purpose so routed model ids (``deepseek/deepseek-v4-pro`` via OpenRouter)
+    are detected the same as native ones.
+
+    Mirrors the profile in Hermes' deepseek model-provider plugin so both
+    agents on this machine speak the same wire format.
+    """
+    m = (model or "").strip().lower()
+    if not m or "deepseek" not in m:
+        return False
+    # normalize a routed prefix like "deepseek/deepseek-v4-pro"
+    tail = m.rsplit("/", 1)[-1]
+    if tail.startswith("deepseek-v3"):
+        return False
+    return tail.startswith("deepseek-v")
+
+
 class OpenAIAgent(AgentBackend):
     """Drives the research loop via the OpenAI Chat Completions API.
 
@@ -26,6 +48,8 @@ class OpenAIAgent(AgentBackend):
         api_key_env: str = "OPENAI_API_KEY",
         base_url: str | None = None,
         max_tokens: int = 4096,
+        thinking: bool = True,
+        reasoning_effort: str | None = None,
     ):
         try:
             import openai
@@ -49,9 +73,43 @@ class OpenAIAgent(AgentBackend):
         self._client = openai.OpenAI(**kwargs)
         self._model = model
         self._max_tokens = max_tokens
+        self._thinking = thinking
+        self._reasoning_effort = reasoning_effort
 
     def model_name(self) -> str:
         return self._model
+
+    def _thinking_kwargs(self) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Build (extra_body, top_level) request extras for thinking models.
+
+        DeepSeek V4 defaults thinking ON when ``extra_body.thinking`` is unset.
+        It then returns ``reasoning_content`` and enforces that later turns echo
+        it back — which lands on HTTP 400 "reasoning_content must be passed
+        back" right after the first tool call, since the harness replays the
+        full message history every round. Setting the flag explicitly (either
+        value) makes the behavior deterministic instead of implicit.
+
+        Returns empty dicts for non-thinking models so their wire format is
+        untouched.
+        """
+        extra_body: dict[str, Any] = {}
+        top_level: dict[str, Any] = {}
+
+        if not _model_supports_thinking(self._model):
+            return extra_body, top_level
+
+        extra_body["thinking"] = {"type": "enabled" if self._thinking else "disabled"}
+        if not self._thinking:
+            return extra_body, top_level
+
+        effort = (self._reasoning_effort or "").strip().lower()
+        if effort in {"xhigh", "max", "ultra"}:
+            top_level["reasoning_effort"] = "max"
+        elif effort in {"low", "medium", "high"}:
+            top_level["reasoning_effort"] = effort
+        # unset -> omit, letting the provider apply its own default
+
+        return extra_body, top_level
 
     def format_tools(self, tools: list[dict]) -> list[dict]:
         """Convert generic tool schemas to OpenAI function-calling format."""
@@ -93,16 +151,24 @@ class OpenAIAgent(AgentBackend):
                             "arguments": json.dumps(tc.arguments),
                         },
                     })
-                api_messages.append({
+                entry = {
                     "role": "assistant",
                     "content": msg.content or None,
                     "tool_calls": tc_list,
-                })
+                }
+                # Thinking models require their reasoning echoed back verbatim
+                # on replay, or the request is rejected.
+                if msg.reasoning_content:
+                    entry["reasoning_content"] = msg.reasoning_content
+                api_messages.append(entry)
             else:
-                api_messages.append({
+                entry = {
                     "role": msg.role,
                     "content": msg.content,
-                })
+                }
+                if msg.role == "assistant" and msg.reasoning_content:
+                    entry["reasoning_content"] = msg.reasoning_content
+                api_messages.append(entry)
 
         kwargs: dict[str, Any] = {
             "model": self._model,
@@ -111,6 +177,11 @@ class OpenAIAgent(AgentBackend):
         }
         if tools:
             kwargs["tools"] = self.format_tools(tools)
+
+        extra_body, top_level = self._thinking_kwargs()
+        kwargs.update(top_level)
+        if extra_body:
+            kwargs["extra_body"] = extra_body
 
         response = self._client.chat.completions.create(**kwargs)
         choice = response.choices[0]
@@ -133,4 +204,7 @@ class OpenAIAgent(AgentBackend):
             role="assistant",
             content=message.content or "",
             tool_calls=tool_calls,
+            # Captured so the next request can echo it back. Providers that
+            # don't emit reasoning simply leave this None.
+            reasoning_content=getattr(message, "reasoning_content", None),
         )
